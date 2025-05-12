@@ -1,7 +1,6 @@
 python crag.py \
 --model_type api \
---api_key 申请的API_Key \
---secret_key 申请的secret_key \
---embedding_model_path ../BAAI/bge-small-en-v1.5 \
---rerank_model_path ../BAAI/bge-reranker-base \
+--api_key sk-f5b047f5249c4806967d56e45db1ee6d \
+--embedding_model_path /raid_sdh/home/hjy/Model/bge-large-en-v1.5 \
+--rerank_model_path /raid_sdh/home/hjy/Model/bge-reranker-base \
 --data_path '../data/Elon.txt'

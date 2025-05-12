@@ -1,15 +1,11 @@
-# -*- coding: UTF-8 -*-
-"""
-@Project ：rag 
-@File    ：model_response.py
-@Author  ：zfk
-@Date    ：2024/5/8 11:45
-"""
+# from __future__ import annotations
 import json
+import os
 import re
-from typing import Any
-
+from typing import Any, ClassVar, Generator
 import requests
+from pydantic import PrivateAttr
+import torch
 from llama_index.core.llms import (
     CustomLLM,
     CompletionResponse,
@@ -22,150 +18,146 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 
 
 class ApiModel:
-    def __init__(self, api_key, secret_key):
+    '''
+    调用模型API，本示例中以使用阿里云平台调用qwen2.5-14b-instruct为例。
+    可根据自己实际情况修改。
+    '''
+    def __init__(self, api_key: str):
         self.api_key = api_key
-        self.secret_key = secret_key
-        self.access_token = self.get_access_token()
-        self.Yi_34b_chat_url = ("https://aip.baidubce.com/rpc/2.0/ai_custom/v1/wenxinworkshop/chat/yi_34b_chat"
-                                "?access_token=") + self.access_token
+        self.endpoint = "https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation"
+        self.model_name = "qwen2.5-14b-instruct"
 
-    def get_access_token(self):
-        """
-        使用 API Key，Secret Key 获取access_token，替换下列示例中的应用API Key、应用Secret Key
-        """
-        url = f"https://aip.baidubce.com/oauth/2.0/token?grant_type=client_credentials&client_id={self.api_key}&client_secret={self.secret_key}"
-        payload = json.dumps("")
+    def chat(self, prompt: str, **generation_params: Any) -> str:
         headers = {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json'
+            'Authorization': f'Bearer {self.api_key}',
+            'Content-Type': 'application/json'
         }
-        response = requests.request("POST", url, headers=headers, data=payload)
-        return response.json().get("access_token")
+        
+        payload = {
+            "model": self.model_name,
+            "input": {"prompt": prompt},
+            "parameters": generation_params
+        }
 
-    def chat(self, prompt, top_p=0.5, top_k=5, temperature=1.0, penalty_score=1):
-        payload = json.dumps({
-            "messages": [
-                {
-                    "role": "user",
-                    "content": prompt
-                }
-            ],
-            'top_p': top_p,
-            'top_k': top_k,
-            'temperature': temperature,
-            'penalty_score': penalty_score
-        })
-        headers = {'Content-Type': 'application/json'}
-        response = requests.request("POST", self.Yi_34b_chat_url, headers=headers, data=payload)
-        return response.json()['result']
+        response = requests.post(
+            self.endpoint,
+            headers=headers,
+            json=payload,
+            timeout=30
+        )
+        response.raise_for_status()  # 自动处理HTTP错误
+        return response.json()['output']['text'].strip()
 
 
-def remove_special_tokens(text):
-    # 去除特殊token的正则表达式
-    special_tokens = re.compile(r'\[gMASK]|\bsop\b')
-    return special_tokens.sub('', text).strip()
+def remove_special_tokens(text: str) -> str:
+    """清理模型生成结果中的特殊标记"""
+    return re.sub(r'\[gMASK]|\bsop\b', '', text).strip()
 
 
 class LocalPeftModel:
-    def __init__(self, peft_model_path="weight/lora_2"):
-        self.model = AutoPeftModelForCausalLM.from_pretrained(peft_model_path, trust_remote_code=True)
-        self.tokenizer = AutoTokenizer.from_pretrained("/data/zzy/Models/ChatGLM3-6B", trust_remote_code=True)
-        self.model = self.model.to("cuda").eval()
+    '''
+    加载本地模型
+    '''
+    # os.environ["CUDA_VISIBLE_DEVICES"] = "1" # 设置设备编号
 
-    def chat(self, prompt):
-        inputs = self.tokenizer.encode(prompt, return_tensors='pt').cuda()
-        outputs = self.model.generate(inputs, max_new_tokens=256)
-        response = self.tokenizer.decode(outputs[0][inputs.size(1):], skip_special_tokens=True)
-        response = remove_special_tokens(response)
-        return response
+    def __init__(self, peft_model_path: str = "weight/lora_2", use_base_model: bool = True):
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        print(f"Using device: {self.device}")
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            "../../Model/Qwen2.5-1.5B-Ins", # 模型本地路径
+            trust_remote_code=True
+        )
+        # 加载原始模型
+        if use_base_model:
+            self.model = AutoModelForCausalLM.from_pretrained(
+                "../../Model/Qwen2.5-1.5B-Ins",  
+                trust_remote_code=True,
+                device_map="auto"
+            ).eval()
+        # 加载微调后的模型
+        else:
+            self.model = AutoPeftModelForCausalLM.from_pretrained(
+                peft_model_path,
+                trust_remote_code=True,
+                device_map="auto"
+            ).eval()
 
-
-class LocalModel:
-    def __init__(self, pretrained_model_name_or_path):
-        self.tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name_or_path, trust_remote_code=True)
-        self.model = AutoModelForCausalLM.from_pretrained(pretrained_model_name_or_path, trust_remote_code=True).eval()
-        self.model = self.model.float()
-
-    def chat(self, prompt):
-        inputs = self.tokenizer.encode(prompt, return_tensors='pt').cuda()  # GPU方式
-        outputs = self.model.generate(inputs, max_length=self.num_output)
-        response = self.tokenizer.decode(outputs[0])
-        return response
+    def chat(self, prompt: str) -> str:
+        """本地模型推理方法"""
+        inputs = self.tokenizer(prompt, return_tensors='pt').to(self.device)
+        outputs = self.model.generate(**inputs, max_new_tokens=256)
+        response = self.tokenizer.decode(outputs[0][inputs.input_ids.size(1):], skip_special_tokens=True)
+        return remove_special_tokens(response)
 
 
 class MyLocalLLM(CustomLLM):
-    context_window = 2048
-    num_output = 256
-    model = "xxxx"
-    model_name = "xxxx"
+    '''
+    封装与本地模型的交互
+    '''
+    context_window: ClassVar[int] = 2048
+    num_output: ClassVar[int] = 256
+    model_name: ClassVar[str] = "Qwen2.5-1.5B-Ins"
 
-    def __init__(self, pretrained_model_name_or_path):
+    _model: LocalPeftModel = PrivateAttr()
+
+    def __init__(self, model_path: str):
         super().__init__()
-        # self.model = MyLocalLLM(pretrained_model_name_or_path)
-        self.model = LocalPeftModel(pretrained_model_name_or_path)
+        self._model = LocalPeftModel(model_path)
 
     @property
     def metadata(self) -> LLMMetadata:
-        """Get LLM metadata."""
-        # 得到LLM的元数据
         return LLMMetadata(
             context_window=self.context_window,
             num_output=self.num_output,
             model_name=self.model_name,
         )
 
-    @llm_completion_callback()  # 回调函数
+    @llm_completion_callback()
     def complete(self, prompt: str, **kwargs: Any) -> CompletionResponse:
-        response = self.model.chat(prompt)
-        return CompletionResponse(text=response)
+        return CompletionResponse(text=self._model.chat(prompt))
 
     @llm_completion_callback()
-    def stream_complete(
-            self, prompt: str, **kwargs: Any
-    ) -> CompletionResponseGen:
-        response = self.model.chat(prompt)
-        for token in response:
+    def stream_complete(self, prompt: str, **kwargs: Any) -> Generator[CompletionResponse, None, None]:
+        response = self._model.chat(prompt)
+        for token in response.split():
             yield CompletionResponse(text=token, delta=token)
 
 
 class MyApiLLM(CustomLLM):
-    context_window = 8192
-    num_output = 256
-    model = "Yi_34b_chat"
-    model_name = "Yi_34b_chat"
+    '''
+    封装与调用模型的交互
+    '''
+    context_window: ClassVar[int] = 8192
+    num_output: ClassVar[int] = 256
+    model_name: ClassVar[str] = "qwen2.5-14b-instruct"
 
-    def __init__(self, api_key, secret_key):
+    _model: ApiModel = PrivateAttr()
+
+    def __init__(self, api_key: str):
         super().__init__()
-        self.model = ApiModel(api_key, secret_key)
+        self._model = ApiModel(api_key)
 
     @property
     def metadata(self) -> LLMMetadata:
-        """Get LLM metadata."""
-        # 得到LLM的元数据
         return LLMMetadata(
             context_window=self.context_window,
             num_output=self.num_output,
             model_name=self.model_name,
         )
 
-    @llm_completion_callback()  # 回调函数
+    @llm_completion_callback()
     def complete(self, prompt: str, **kwargs: Any) -> CompletionResponse:
-
-        response = self.model.chat(prompt)
-        return CompletionResponse(text=response)
+        return CompletionResponse(text=self._model.chat(prompt, **kwargs))
 
     @llm_completion_callback()
-    def stream_complete(
-            self, prompt: str, **kwargs: Any
-    ) -> CompletionResponseGen:
-        # 流式完成函数
-        response = self.model.chat(prompt)
-        for token in response:
+    def stream_complete(self, prompt: str, **kwargs: Any) -> Generator[CompletionResponse, None, None]:
+        response = self._model.chat(prompt, **kwargs)
+        for token in response.split():
             yield CompletionResponse(text=token, delta=token)
 
 
 if __name__ == '__main__':
-    api_key = ""
-    secret_key = ""
-    my_api_llm = MyApiLLM(api_key, secret_key)
-    print(my_api_llm.complete('你好'))
+    # 使用示例
+    llm = MyApiLLM(api_key="你的API密钥")
+    # llm = MyLocalLLM(model_path="../../Model/Qwen2.5-1.5B-Ins")
+    print(llm.complete("林俊杰").text)

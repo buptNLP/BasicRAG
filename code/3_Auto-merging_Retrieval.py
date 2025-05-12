@@ -50,9 +50,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--model_type', type=str, default='api', choices=['api', 'local'])
     parser.add_argument('--api_key', type=str, help='api_key', default='')
-    parser.add_argument('--secret_key', type=str, help='secret_key', default='')
-    parser.add_argument('--llm_model_path', type=str, help='local llm model path', default='../qwen1.5-0.5B')
-    parser.add_argument('--embedding_model_path', type=str, help='local embedding model path',default='../BAAI/bge-small-en-v1.5')
+    parser.add_argument('--llm_model_path', type=str, help='local llm model path', default='/raid_sdh/home/hjy/Model/Qwen2.5-1.5B-Ins')
+    parser.add_argument('--embedding_model_path', type=str, help='local embedding model path',default='/raid_sdh/home/hjy/Model/bge-large-en-v1.5')
     parser.add_argument('--similarity_top_k', type=int, default=12)
     parser.add_argument('--data_path', type=str, help='local data path', default='../data/Elon.txt')
     parser.add_argument('--save_path', type=str, help='chunk save path', default='./merge_index')
@@ -61,8 +60,8 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     if args.model_type == 'api':
-        assert args.api_key and args.secret_key, "api_key and secret_key must be provided"
-        llm = MyApiLLM(args.api_key, args.secret_key)
+        assert args.api_key , "api_key must be provided"
+        llm = MyApiLLM(args.api_key)
     else:
         llm = MyLocalLLM(args.llm_model_path)
     Settings.llm = llm

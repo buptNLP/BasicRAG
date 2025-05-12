@@ -13,6 +13,7 @@ from llama_index.core.indices.postprocessor import SentenceTransformerRerank
 from llama_index.core.retrievers import AutoMergingRetriever
 from llama_index.core.query_engine import RetrieverQueryEngine
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
+from tqdm import tqdm  # 导入 tqdm
 
 from model_response import MyApiLLM, MyLocalLLM
 
@@ -33,12 +34,15 @@ def build_automerging_index(documents, save_dir="merging_index", chunk_sizes=Non
         automerging_index = load_index_from_storage(StorageContext.from_defaults(persist_dir=save_dir))
     return automerging_index
 
-
+'''
+读取问答对
+'''
 def test_crag(source_file='../data/crag_data_200.jsonl', target_file='../data/crag_200_result.jsonl'):
     with open(source_file, 'r', encoding='utf-8') as f:
         lines = f.readlines()
     result = []
-    for i,line in enumerate(lines[:5]):
+    # 使用 tqdm 包装循环
+    for i, line in tqdm(enumerate(lines[:5]), total=len(lines[:5]), desc="Processing"):
         data = json.loads(line)
         query = data['query']
         answer = data['answer']
@@ -66,7 +70,6 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--model_type', type=str, default='api', choices=['api', 'local'])
     parser.add_argument('--api_key', type=str, help='api_key', default='')
-    parser.add_argument('--secret_key', type=str, help='secret_key', default='')
     parser.add_argument('--llm_model_path', type=str, help='local llm model path', default='../qwen1.5-0.5B')
     parser.add_argument('--embedding_model_path', type=str, help='local embedding model path',
                         default='../BAAI/bge-small-en-v1.5')
@@ -79,8 +82,8 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     if args.model_type == 'api':
-        assert args.api_key and args.secret_key, "api_key and secret_key must be provided"
-        llm = MyApiLLM(args.api_key, args.secret_key)
+        assert args.api_key , "api_key must be provided"
+        llm = MyApiLLM(args.api_key)
     else:
         llm = MyLocalLLM(args.llm_model_path)
     Settings.llm = llm
