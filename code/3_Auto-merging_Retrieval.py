@@ -2,7 +2,7 @@
 """
 @Project ：rag 
 @File    ：Auto-merging_Retrieval.py
-@Author  ：zfk
+@Author  ：cist
 @Date    ：2024/5/8 11:25
 """
 import os

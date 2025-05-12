@@ -2,7 +2,7 @@
 """
 @Project ：rag 
 @File    ：Basic_RAG_pipeline.py
-@Author  ：zfk
+@Author  ：cist
 @Date    ：2024/5/7 22:21
 """
 import torch

@@ -2,7 +2,7 @@
 """
 @Project ：rag 
 @File    ：Sentence_window_retrieval.py
-@Author  ：zfk
+@Author  ：cist
 @Date    ：2024/5/7 22:44
 """
 import os
